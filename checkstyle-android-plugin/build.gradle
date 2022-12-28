@@ -1,0 +1,39 @@
+plugins {
+    id "com.gradle.plugin-publish" version "1.1.0"
+    id 'org.jetbrains.kotlin.jvm' version '1.7.10'
+}
+repositories {
+    google()
+    mavenCentral()
+}
+
+group = "com.drewhannay.checkstyle"
+version = "1.0.0"
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    implementation "com.android.tools.build:gradle:8.0.0-alpha10"
+}
+
+gradlePlugin {
+    plugins {
+        checkstylePlugin {
+            id = 'com.drewhannay.checkstyle-android'
+            implementationClass = 'com.drewhannay.checkstyle.CheckstyleAndroidPlugin'
+            displayName = 'Checkstyle Android plugin'
+            description = 'Gradle plugin configure Checkstyle for Android projects'
+        }
+    }
+}
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
