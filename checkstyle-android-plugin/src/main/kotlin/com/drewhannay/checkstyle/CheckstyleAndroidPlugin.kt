@@ -1,8 +1,10 @@
+@file:Suppress("UnstableApiUsage")
+
 package com.drewhannay.checkstyle
 
-import com.android.build.api.dsl.AndroidSourceSet
-import com.android.build.gradle.BaseExtension
-import com.android.build.gradle.internal.plugins.BasePlugin
+import com.android.build.api.variant.AndroidComponentsExtension
+import com.android.build.api.variant.Component
+import com.android.build.gradle.BasePlugin
 import org.gradle.api.Action
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -17,7 +19,6 @@ import org.gradle.api.tasks.TaskProvider
 import org.gradle.util.internal.GUtil
 import java.io.File
 import java.util.Locale
-import java.util.concurrent.Callable
 
 internal const val CHECKSTYLE_CONFIG_DIR_NAME = "config/checkstyle"
 internal const val DEFAULT_CHECKSTYLE_VERSION = "8.37"
@@ -38,7 +39,7 @@ open class CheckstyleAndroidPlugin : Plugin<Project> {
         extension = createExtension()
         configureExtensionRule()
         configureTaskRule()
-        configureSourceSetRule()
+        configureVariants()
         configureCheckTask()
     }
 
@@ -76,16 +77,6 @@ open class CheckstyleAndroidPlugin : Plugin<Project> {
         val extensionMapping = extension as IConventionAware
         extensionMapping.conventionMapping.map("reportsDir") {
             project.extensions.getByType(ReportingExtension::class.java).file("checkstyle")
-        }
-
-        // set this so it won't be null if the project doesn't have an Android plugin for some reason
-        extension.androidSourceSets = project.container(AndroidSourceSet::class.java)
-
-        // https://github.com/android/gradle-recipes/blob/bd8336e32ae512c630911287ea29b45a6bacb73b/BuildSrc/setVersionsFromTask/buildSrc/src/main/kotlin/CustomPlugin.kt#L14
-        // When Google eventually exposes a public API, we should update the code here.
-        withBaseAndroidPlugin {
-            extension.androidSourceSets =
-                (project.extensions.getByName("android") as BaseExtension).sourceSets
         }
     }
 
@@ -128,40 +119,46 @@ open class CheckstyleAndroidPlugin : Plugin<Project> {
         }
     }
 
-    private fun configureSourceSetRule() {
-        withBaseAndroidPlugin { plugin ->
-            plugin.extension.sourceSets.all { sourceSet ->
-                val provider = project.tasks.register(
-                    sourceSet.getTaskName("checkstyle"),
-                    Checkstyle::class.java
-                ) { task ->
-                    task.description = "Run Checkstyle analysis for ${sourceSet.name} source set"
-                    task.group = JavaBasePlugin.VERIFICATION_GROUP
-                    task.classpath = project.files()
-                    task.source = sourceSet.java.getSourceFiles()
+    private fun configureVariants() {
+        withBaseAndroidPlugin {
+            val extension = project.extensions.getByType(AndroidComponentsExtension::class.java)
+            extension.onVariants { variant ->
+                configureComponent(variant)
+                variant.nestedComponents.forEach { component ->
+                    configureComponent(component)
                 }
-                parentTask.configure { it.dependsOn(provider) }
             }
         }
+    }
+
+    private fun configureComponent(component: Component) {
+        val javaSources = component.sources.java ?: return
+
+        val provider = project.tasks.register(
+            component.getTaskName("checkstyle"),
+            Checkstyle::class.java
+        ) { task ->
+            task.description = "Run Checkstyle analysis for ${component.name} source set"
+            task.group = JavaBasePlugin.VERIFICATION_GROUP
+            task.classpath = project.files()
+            task.source = project.files().from(javaSources.all).asFileTree
+        }
+        parentTask.configure { it.dependsOn(provider) }
     }
 
     private fun configureCheckTask() {
         withBaseAndroidPlugin {
             project.tasks.named(JavaBasePlugin.CHECK_TASK_NAME) { task ->
-                task.dependsOn(Callable {
-                    extension.androidSourceSets?.map { sourceSet ->
-                        sourceSet.getTaskName("checkstyle")
-                    }
-                })
+                task.dependsOn(parentTask)
             }
         }
     }
 
-    private fun withBaseAndroidPlugin(action: Action<BasePlugin<*, *, *, *, *, *, *, *, *, *>>) {
+    private fun withBaseAndroidPlugin(action: Action<BasePlugin>) {
         project.plugins.withType(BasePlugin::class.java, action)
     }
 
-    private fun AndroidSourceSet.getTaskName(verb: String): String {
+    private fun Component.getTaskName(verb: String): String {
         return GUtil.toLowerCamelCase("$verb ${name.capitalize()}")
     }
 }
